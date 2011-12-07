@@ -91,6 +91,9 @@ class BF3StatsAPI {
 	private static $platform = '';
 	private static $options = array();
 	
+	private static $_cache = array();
+	private static $cache_time = 3600; // 1 hour
+	
 	private static $time_correction = 0;
 	private static $api_ident;
 	private static $api_key;
@@ -327,7 +330,13 @@ class BF3StatsAPI {
 	}
 	
 	private static function request() {
-		self::call();
+		if( self::hasCache( self::$postUri, self::$postfields ) ):
+			self::$status = 200;
+			self::$response = self::getCache( self::$postUri, self::$postfields );
+		else:
+			self::call();
+			self::setCache( self::$postUri, self::$postfields, self::$response );
+		endif;
 		if( self::$status == 200 ) {
 			self::$data = json_decode( self::$response, true );
 			return true;
@@ -343,7 +352,9 @@ class BF3StatsAPI {
 		curl_setopt( self::$curl, CURLOPT_HEADER, false );
 		curl_setopt( self::$curl, CURLOPT_POST, true );
 		curl_setopt( self::$curl, CURLOPT_USERAGENT, 'BF3StatsAPI/0.1' );
-		curl_setopt( self::$curl, CURLOPT_HTTPHEADER, array('Expect:') );
+		curl_setopt( self::$curl, CURLOPT_HTTPHEADER, array(
+														'Expect:'														
+													) );
 		curl_setopt( self::$curl, CURLOPT_RETURNTRANSFER, true );
 		curl_setopt( self::$curl, CURLOPT_POSTFIELDS, self::$postfields );
 		curl_setopt( self::$curl, CURLOPT_HEADER, false );
@@ -366,68 +377,33 @@ class BF3StatsAPI {
 		print '<p>('.$errno.') '.$error.'</p>';
 		print '</div>';
 	}
-}
-
-/**
- * Take however many objects and allow accessing them as a single object
- *
- * First In First Out access to properties and methods
- *
- * @author joseph
- */
-class MergeObject {
-    private $objectsArray=array();
-    public function __construct() {
-        $objects = func_get_args();
-        foreach($objects as $o){
-            if(!is_object($o)){
-                throw new Exception('Tried to add a non object to the MergeObject::objects array');
-            }
-            $class=get_class($o);
-            if(isset($this->objectsArray[$class]) && $class != 'stdClass'){
-                throw new Exception ('object of class ' . $class . 'already set in the MergeObject::objects array');
-            }
-            $this->objectsArray[$class]=$o;
-        }
-    }
-
-    public function __get($attrib_name) {
-        foreach($this->objectsArray as $o){
-            if(isset($o->$attrib_name)){
-                return $o->$attrib_name;
-            }else if(method_exists($o, '__get')){
-                try{
-                    $return = $o->$attrib_name;
-                    return $return;
-                }catch(Exception $e){
-                    // fail silently
-                }
-            }
-        }
-        throw new Exception('Tried to access $attrib_name ' . $attrib_name . ' but not found in any Merged Objects');
-    }
-
-    public function toArray(){
-        foreach($this->objectsArray as $o){
-            if(method_exists($o, 'toArray')){
-                $ars[]=$o->toArray();
-            }else{
-                $ars[]=(array)$o;
-            }
-        }
-        //flip the order of the $ars array so it respects our first in first out access
-        $ars = array_reverse($ars);
-        return call_user_func_array('array_merge', $ars);
-    }
-
-    public function __call($name, $arguments){
-        foreach($this->objectsArray as $o){
-            if(method_exists($o, $name)){
-                return call_user_func_array(array($o,$name), $arguments);
-            }
-        }
-        throw new Exception("Tried to access method $name but not found in any Merged Objects");
-    }
+	
+	/**
+	 * FILE CACHE
+	 */
+	private static function setCache( $uri, $fields, $response ) {
+		$file = self::_cacheMakeFile( $uri, $fields );
+		file_put_contents( '_cache'.DIRECTORY_SEPARATOR.$file.'.json', $response );
+	}
+	private static function getCache( $uri, $fields ) {
+		$file = self::_cacheMakeFile( $uri, $fields );
+		return file_get_contents( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' );
+	}
+	private static function hasCache( $uri, $fields ) {
+		$file = self::_cacheMakeFile( $uri, $fields );
+		if( file_exists( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' ) ):
+			$filetime = filectime( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' );
+			if( $filetime != false && $filetime < (time() + self::$cache_time) ):
+				return true;
+			else:
+				unlink( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' );
+			endif;
+		endif;
+		return false;
+	}
+	private static function _cacheMakeFile( $uri, $fields ) {
+		return md5(json_encode($uri)).'_'.md5(json_encode($fields));
+	}
 }
 
 ?>
