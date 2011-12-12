@@ -210,7 +210,7 @@ class BF3StatsAPI {
 				if( is_string($option) && (is_bool($value) || is_int($value)) ):
 					self::$options[ $option ] = (bool)$value;
 				else:
-					self::$options[ $option ] = true;
+					self::$options[ $value ] = true;
 				endif;
 			endforeach;
 		elseif( is_string($options) ):
