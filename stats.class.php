@@ -1,5 +1,6 @@
 <?php
 
+define( 'DS', DIRECTORY_SEPARATOR );
 /**
  * Create new objects when needed
  */
@@ -30,26 +31,39 @@ function __autoload( $class ) {
  * takes the response from the API and creates one massive object
  * when the class already exists it can use the predefined methods (see class _stats)
  */
-function data2object( $array, $class = 'data' ) {
+function data2object( $array, $class = 'data', $settings = array() ) {
 	$class = '_'.strtolower($class);
 	$object = new $class;
+	if(method_exists($object, 'setSettings')):
+		$object->setSettings( $settings );
+	endif;
 	if( !empty($array) && is_array($array) ):
 		foreach($array as $key => $value):
-			if( is_array($value) ):
-				$object->{$key} = data2object( $value, $key );
+			// if key is numeric, it's an array (eg. nextranks)
+			if( is_numeric($key) ):
+				if(!is_array($object)) $object = array();
+				if( is_array($value) ):
+					$object[$key] = data2object( $value, $key );
+				else:
+					$object[$key] = $value;
+				endif;
 			else:
-				$object->{$key} = $value;
-				if( strstr($key, 'img') == true && is_callable(array('_data', '_htmlImage')) ):
-					$printkey = 'html_'.$key;
-					$object->{$printkey} = _data::_htmlImage( $value );
-				endif;
-				if( strstr($key, 'date') == true && is_callable(array('_data', '_niceDate')) ):
-					$printkey = 'nice_'.$key;
-					$object->{$printkey} = _data::_niceDate( $value );
-				endif;
-				if( strstr($key, 'time') == true && is_callable(array('_data', '_niceTime')) ):
-					$printkey = 'nice_'.$key;
-					$object->{$printkey} = _data::_niceTime( $value );
+				if( is_array($value) ):
+					$object->{$key} = data2object( $value, $key, $settings );
+				else:
+					$object->{$key} = $value;
+					if( strstr($key, 'img') == true && is_callable(array('_data', '_htmlImage')) ):
+						$printkey = 'html_'.$key;
+						$object->{$printkey} = _data::_htmlImage( $value );
+					endif;
+					if( strstr($key, 'date') == true && is_callable(array('_data', '_niceDate')) ):
+						$printkey = 'nice_'.$key;
+						$object->{$printkey} = _data::_niceDate( $value );
+					endif;
+					if( strstr($key, 'time') == true && is_callable(array('_data', '_niceTime')) ):
+						$printkey = 'nice_'.$key;
+						$object->{$printkey} = _data::_niceTime( $value );
+					endif;
 				endif;
 			endif;
 		endforeach;
@@ -63,22 +77,26 @@ function data2object( $array, $class = 'data' ) {
 /**
  * PREDEFINED OBJECTS
  */
-
+ 
 class _data {
-	private static $img_path = 'bf3/%s';
+	private static $settings = array();
 
 	public function _htmlImage( $uri, $alt = '' ) {
-		return '<img src="'. sprintf(self::$img_path, $uri).'" alt="'.$alt.'" />';
+		return '<img src="'. sprintf(self::$settings['img_path'].DS.'%s', str_replace('/', DS, $uri)).'" alt="'.$alt.'" />';
+	}
+	
+	public function setSettings( $settings = array() ) {
+		self::$settings = $settings;
 	}
 
-	public function _niceDate( $date, $format = 'd-m-y h:i:s' ) {
+	public function _niceDate( $date ) {
 		if( is_numeric($date) ):
 			$time = (float)$date;
 		else:
-			$time = time();;
+			$time = time();
 		endif;
 		
-		$datetime = date( $format, ($time));
+		$datetime = strftime( self::$settings['date_format'], ($time));
 		
 		return $datetime;
 	}

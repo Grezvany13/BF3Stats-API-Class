@@ -1,5 +1,8 @@
 <?php
 
+// is required ;)
+require_once('stats.class.php');
+
 class BF3StatsAPI {
 
 	private static $curl;
@@ -98,11 +101,20 @@ class BF3StatsAPI {
 	private static $api_ident;
 	private static $api_key;
 	
-
-	public function __construct() {}
+	private static $settings = array(
+		'cache' => 'files',		// none (false), files, [database, auto (true)] // database and auto don't work yet
+		'time_correction' => 0,
+		'date_format' => '%c',
+		'time_format' => 'battlelog',
+		'img_path' => 'bf3',
+		'cache_path' => '_cache'
+	);
+	private static $return_object = true;
 	
-	public static function setTimeCorrection( $int ) {
-		self::$time_correction = (int)$int;
+
+	public function __construct() {
+		// ugly hack to prevent timezone errors
+		date_default_timezone_set(date_default_timezone_get());
 	}
 	
 	public static function setApiIdent( $ident ) {
@@ -113,6 +125,34 @@ class BF3StatsAPI {
 		self::$api_key = $key;
 	}
 
+	// OPTIONS
+	public static function setTimeCorrection( $int ) {
+		self::$settings['time_correction'] = (int)$int;
+	}
+	public static function setCache( $string ) {
+		if( in_array($string, array(true, false, 'none', 'files', 'database', 'auto')) ):
+			if($string === true) $string = 'auto';
+			if($string === false) $string = 'files'; // should become auto
+			self::$settings['cache'] = $string;
+		endif;
+	}
+	public static function setDateFormat( $format ) {
+		if( strftime($format) !== false ):
+			self::$settings['date_format'] = $format;
+		endif;
+	}
+	public static function setTimeFormat( $format ) {
+		if($format == 'battlelog'):
+			self::$settings['time_format'] = 'H M';
+		endif;
+	}
+	public static function setImagePath( $path ) {
+		self::$settings['img_path'] = $path;
+	}
+	public static function setCachePath( $path ) {
+		self::$settings['cache_path'] = $path;
+	}
+	
 	/**
 	 * setPlayer
 	 *
@@ -208,7 +248,11 @@ class BF3StatsAPI {
 			);
 			if(self::request()):
 				if( self::$data['status'] === 'ok' ):
-					$data = array_merge( $data, self::$data['list']);
+					if(self::$return_object && function_exists('data2object')):
+						$data[$platform] = data2object(self::$data['list'], 'data', self::$settings);
+					else:
+						$data[$platform] = self::$data['list'];
+					endif;
 				elseif( self::$data['status'] === 'error' ):
 					self::error( 'playerlist', self::$data['error'], print_r(self::$data['failed'], true) );
 				endif;
@@ -241,7 +285,10 @@ class BF3StatsAPI {
 				$data = array_merge( $data, self::$data);
 			endif;
 		endif;
-		return $data;	
+		if(self::$return_object && function_exists('data2object')):
+			return data2object($data, 'data', self::$settings);
+		endif;
+		return $data;
 	}
 	
 	/**
@@ -330,12 +377,14 @@ class BF3StatsAPI {
 	}
 	
 	private static function request() {
-		if( self::hasCache( self::$postUri, self::$postfields ) ):
+		if( self::$settings['cache'] != 'none' && self::_hasCache( self::$postUri, self::$postfields ) ):
 			self::$status = 200;
-			self::$response = self::getCache( self::$postUri, self::$postfields );
+			self::$response = self::_getCache( self::$postUri, self::$postfields );
 		else:
 			self::call();
-			self::setCache( self::$postUri, self::$postfields, self::$response );
+			if( self::$settings['cache'] != 'none' ):
+				self::_setCache( self::$postUri, self::$postfields, self::$response );
+			endif;
 		endif;
 		if( self::$status == 200 ) {
 			self::$data = json_decode( self::$response, true );
@@ -381,22 +430,34 @@ class BF3StatsAPI {
 	/**
 	 * FILE CACHE
 	 */
-	private static function setCache( $uri, $fields, $response ) {
-		$file = self::_cacheMakeFile( $uri, $fields );
-		file_put_contents( '_cache'.DIRECTORY_SEPARATOR.$file.'.json', $response );
-	}
-	private static function getCache( $uri, $fields ) {
-		$file = self::_cacheMakeFile( $uri, $fields );
-		return file_get_contents( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' );
-	}
-	private static function hasCache( $uri, $fields ) {
-		$file = self::_cacheMakeFile( $uri, $fields );
-		if( file_exists( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' ) ):
-			$filetime = filectime( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' );
-			if( $filetime != false && $filetime < (time() + self::$cache_time) ):
-				return true;
+	private static function _setCache( $uri, $fields, $response ) {
+		if(self::$settings['cache'] == 'file'):
+			$file = self::_cacheMakeFile( $uri, $fields );
+			if( is_writable( self::$settings['cache_path'].DS ) ): // buggy???
+				file_put_contents( self::$settings['cache_path'].DS.$file.'.json', $response );
 			else:
-				unlink( '_cache'.DIRECTORY_SEPARATOR.$file.'.json' );
+				self::error( 'file caching', 0, 'Either ['.self::$settings['cache_path'].DS .'] is not writeable or "is_writeable" is bugged. Disable caching and send a bug report.' );
+			endif;
+		endif;
+	}
+	private static function _getCache( $uri, $fields ) {
+		if(self::$settings['cache'] == 'file'):
+			$file = self::_cacheMakeFile( $uri, $fields );
+			if( file_exists( self::$settings['cache_path'].DS.DS.$file.'.json' ) ):
+				return file_get_contents( self::$settings['cache_path'].DS.DS.$file.'.json' );
+			endif;
+		endif;
+	}
+	private static function _hasCache( $uri, $fields ) {
+		if(self::$settings['cache'] == 'file'):
+			$file = self::_cacheMakeFile( $uri, $fields );
+			if( file_exists( self::$settings['cache_path'].DS.$file.'.json' ) ):
+				$filetime = filectime( self::$settings['cache_path'].DS.$file.'.json' );
+				if( $filetime != false && $filetime < (time() + self::$cache_time) ):
+					return true;
+				else:
+					unlink( self::$settings['cache_path'].DS.$file.'.json' );
+				endif;
 			endif;
 		endif;
 		return false;
