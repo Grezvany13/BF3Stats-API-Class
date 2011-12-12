@@ -4,36 +4,56 @@ define( 'DS', DIRECTORY_SEPARATOR );
 /**
  * Create new objects when needed
  */
+function __load( $class, $extend = null) {
+	if($extend):
+		eval('class '.$class.' extends '.$extend.' {}');
+	endif;
+	return new $class;
+}
+
 function __autoload( $class ) {
-	if( substr($class, 0, 1) == '_' ):
-		if(
-			substr($class, 1, 2) == 'ar'		// Assault Rifles
-			||	substr($class, 1, 2) == 'ca'	// Carbines
-			||	substr($class, 1, 2) == 'mg'	// Machine Guns
-			||	substr($class, 1, 1) == 'p'		// Pistols
-			||	substr($class, 1, 2) == 'sg'	// Shotguns
-			||	substr($class, 1, 2) == 'sm'	// Sub Machine Guns
-			||	substr($class, 1, 2) == 'sr'	// Sniper Rifle
-			||	substr($class, 1, 2) == 'wa'	// Weapons Special (Knife)
-			||	substr($class, 1, 3) == 'wLA'	// Anti Air
-			||	substr($class, 1, 3) == 'wLA'	// Anti Tank
-		):
-			eval('class '.$class.' extends __wap {}');
-		elseif( substr($class, 1, 2) == 'us' || substr($class, 1, 2) == 'ru' ):
-			eval('class '.$class.' extends __team {}');
-		else:
-			eval('class '.$class.' {}');
+	eval('class '.$class.' {}');
+}
+function hasExtend( $class, $parent = null ) {
+	if(
+		substr($class, 0, 2) == 'ar'		// Assault Rifles
+		||	substr($class, 0, 2) == 'ca'	// Carbines
+		||	substr($class, 0, 2) == 'mg'	// Machine Guns
+		||	substr($class, 0, 1) == 'p'		// Pistols
+		||	substr($class, 0, 2) == 'sg'	// Shotguns
+		||	substr($class, 0, 2) == 'sm'	// Sub Machine Guns
+		||	substr($class, 0, 2) == 'sr'	// Sniper Rifle
+		||	substr($class, 0, 2) == 'wa'	// Weapons Special (Knife)
+		||	substr($class, 0, 3) == 'wLA'	// Anti Air
+		||	substr($class, 0, 3) == 'wLA'	// Anti Tank
+	):
+		return '__wap';
+	endif;
+	if( substr($class, 0, 2) == 'us' || substr($class, 0, 2) == 'ru' ):
+		return '__team';
+	endif;
+	if($parent):
+		if($parent == 'ranking'):
+			return '__ranking';
 		endif;
 	endif;
+	
+	return false;
 }
 
 /**
  * takes the response from the API and creates one massive object
  * when the class already exists it can use the predefined methods (see class _stats)
  */
-function data2object( $array, $class = 'data', $settings = array() ) {
-	$class = '_'.strtolower($class);
-	$object = new $class;
+function data2object( $array, $class = 'data', $settings = array(), $parent = null ) {
+	$nclass = '_'.strtolower($class);
+	
+	if( $extend = hasExtend($class, $parent) ):
+		$object = __load($nclass, $extend);
+	else:
+		$object = __load($nclass);
+	endif;
+	
 	if(method_exists($object, 'setSettings')):
 		$object->setSettings( $settings );
 	endif;
@@ -43,13 +63,13 @@ function data2object( $array, $class = 'data', $settings = array() ) {
 			if( is_numeric($key) ):
 				if(!is_array($object)) $object = array();
 				if( is_array($value) ):
-					$object[$key] = data2object( $value, $key );
+					$object[$key] = data2object( $value, $key, $settings, $class );
 				else:
 					$object[$key] = $value;
 				endif;
 			else:
 				if( is_array($value) ):
-					$object->{$key} = data2object( $value, $key, $settings );
+					$object->{$key} = data2object( $value, $key, $settings, $class );
 				else:
 					$object->{$key} = $value;
 					if( strstr($key, 'img') == true && is_callable(array('_data', '_htmlImage')) ):
@@ -258,6 +278,9 @@ class _stats {
 			
 		}
 	}
+	
+	class _ranking {}
+	
 class __wap {
 	public function init() {
 		if( isset($this->shots) && isset($this->hits) && $this->shots>0 && $this->hits>0 ):
@@ -270,6 +293,14 @@ class __team {
 		if( isset($this->shots) && isset($this->hits) && $this->shots>0 && $this->hits>0 ):
 			$this->accuracy = (float)number_format( ((100 / $this->shots ) * $this->hits), 3 );
 		endif;
+	}
+}
+class __ranking {
+	public function init() {
+		$this->rank = $this->r;
+		$this->combined = $this->c;
+		$this->value = $this->v;
+		$this->top_perc = (float)number_format( ( (100 / $this->c) * $this->r ), 2 );
 	}
 }
 
