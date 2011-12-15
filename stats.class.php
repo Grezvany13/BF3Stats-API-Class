@@ -1,6 +1,7 @@
 <?php
 
 define( 'DS', DIRECTORY_SEPARATOR );
+
 /**
  * Create new objects when needed
  */
@@ -14,30 +15,17 @@ function __load( $class, $extend = null) {
 function __autoload( $class ) {
 	eval('class '.$class.' {}');
 }
+/**
+ * check if the current class has a known parent and add the "special" class
+ */
 function hasExtend( $class, $parent = null ) {
-	if(
-		substr($class, 0, 2) == 'ar'		// Assault Rifles
-		||	substr($class, 0, 2) == 'ca'	// Carbines
-		||	substr($class, 0, 2) == 'mg'	// Machine Guns
-		||	substr($class, 0, 1) == 'p'		// Pistols
-		||	substr($class, 0, 2) == 'sg'	// Shotguns
-		||	substr($class, 0, 2) == 'sm'	// Sub Machine Guns
-		||	substr($class, 0, 2) == 'sr'	// Sniper Rifle
-		||	substr($class, 0, 2) == 'wa'	// Weapons Special (Knife)
-		||	substr($class, 0, 3) == 'wLA'	// Anti Air
-		||	substr($class, 0, 3) == 'wLA'	// Anti Tank
-	):
-		return '__wap';
-	endif;
-	if( substr($class, 0, 2) == 'us' || substr($class, 0, 2) == 'ru' ):
-		return '__team';
-	endif;
-	if($parent):
-		if($parent == 'ranking'):
-			return '__ranking';
-		endif;
-	endif;
-	
+	switch( $parent ):
+		default: case null:	return false;			break;
+		case 'weapons':		return '__weapon';		break;
+		case 'ranking':		return '__ranking';		break;
+		case 'teams':		return '__team';		break;
+		case 'gamemodes':	return '__gamemode';	break;
+	endswitch;
 	return false;
 }
 
@@ -47,13 +35,13 @@ function hasExtend( $class, $parent = null ) {
  */
 function data2object( $array, $class = 'data', $settings = array(), $parent = null ) {
 	$nclass = '_'.strtolower($class);
-	
+	// check if the new class needs something "special"
 	if( $extend = hasExtend($class, $parent) ):
 		$object = __load($nclass, $extend);
 	else:
 		$object = __load($nclass);
 	endif;
-	
+	// set some settings when needed
 	if(method_exists($object, 'setSettings')):
 		$object->setSettings( $settings );
 	endif;
@@ -68,10 +56,13 @@ function data2object( $array, $class = 'data', $settings = array(), $parent = nu
 					$object[$key] = $value;
 				endif;
 			else:
+				// if value is an array, loop over it again
 				if( is_array($value) ):
 					$object->{$key} = data2object( $value, $key, $settings, $class );
 				else:
+				// if value is not an array, put it as a variable
 					$object->{$key} = $value;
+					// check for special values like date, time, images, etc
 					if( strstr($key, 'img') == true && is_callable(array('_data', '_htmlImage')) ):
 						$printkey = 'html_'.$key;
 						$object->{$printkey} = _data::_htmlImage( $value );
@@ -88,6 +79,7 @@ function data2object( $array, $class = 'data', $settings = array(), $parent = nu
 			endif;
 		endforeach;
 	endif;
+	// run method init() when available
 	if(method_exists($object, 'init')):
 		$object->init();
 	endif;
@@ -224,6 +216,7 @@ class _data {
  */
 class _stats {
 	public function init() {
+		// not the best way to do this, but is needed since it requires 2 subclasses
 		if( isset($this->global->time) && isset($this->scores->score) ):
 			$num = 0;
 			if( $this->scores->score && $this->global->time ) $num = $this->scores->score / ( $this->global->time / 60 );
@@ -231,67 +224,97 @@ class _stats {
 		endif;
 	}
 }
-	class _global {
-		public function init() {
-			if( isset($this->kills) && isset($this->deaths) ):
-				$this->kdr = (float)number_format( ($this->kills / $this->deaths), 3 );
-			endif;
-			if( isset($this->wins) && isset($this->losses) ):
-				$this->wlr = (float)number_format( ($this->wins / $this->losses), 3 );
-			endif;
-			if( isset($this->kills) && isset($this->headshots) ):
-				$this->headshot_perc = (float)number_format( ((100 / $this->kills) * $this->headshots), 3 );
-			endif;
-			if( isset($this->rounds) && isset($this->wins) && isset($this->losses) ):
-				$this->rounds_finished = (float)number_format( (( 100 / ($this->wins + $this->losses)) * $this->rounds), 3 );
-			endif;
-			if( isset($this->shots) && isset($this->hits) && $this->shots>0 && $this->hits>0 ):
-				$this->accuracy = (float)number_format( ((100 / $this->shots ) * $this->hits), 3 );
-			endif;
-		}
+class _global {
+	public function init() {
+		if( isset($this->kills) && isset($this->deaths) ):
+			$this->kdr = (float)number_format( ($this->kills / $this->deaths), 3 );
+		endif;
+		if( isset($this->wins) && isset($this->losses) ):
+			$this->wlr = (float)number_format( ($this->wins / $this->losses), 3 );
+		endif;
+		if( isset($this->kills) && isset($this->headshots) ):
+			$this->headshot_perc = (float)number_format( ((100 / $this->kills) * $this->headshots), 3 );
+		endif;
+		if( isset($this->rounds) && isset($this->wins) && isset($this->losses) ):
+			$this->rounds_finished = (float)number_format( (( 100 / ($this->wins + $this->losses)) * $this->rounds), 3 );
+		endif;
+		if( isset($this->shots) && isset($this->hits) && $this->shots>0 && $this->hits>0 ):
+			$this->accuracy = (float)number_format( ((100 / $this->shots ) * $this->hits), 3 );
+		endif;
 	}
-	class _scores {
-		public function init() {
+}
+class _scores {
+	public function init() {
 		/**
 		 * Scores per Class (or Kit)
 		 *
-		 * Assault = 220000;
-		 * Engineer = 145000;
-		 * Support = 177000; == 170000
-		 * Recon = 195000;
-		 *
-		 * thanks to TheHiram
+		 * Assault = 220000
+		 * Engineer = 145000
+		 * Support = 170000
+		 * Recon = 195000
 		 */
-			if(isset($this->assault)):
-				$this->assault_stars = (int)floor($this->assault / 220000);
-			endif;
-			if(isset($this->engineer)):
-				$this->engineer_stars = (int)floor($this->engineer / 145000);
-			endif;
-			if(isset($this->support)):
-				$this->support_stars = (int)floor($this->support / 170000);
-			endif;
-			if(isset($this->recon)):
-				$this->recon_stars = (int)floor($this->recon / 195000);
-			endif;
-			
-			
-		}
+		if(isset($this->assault)):
+			$this->assault_stars = (int)floor($this->assault / 220000);
+		endif;
+		if(isset($this->engineer)):
+			$this->engineer_stars = (int)floor($this->engineer / 145000);
+		endif;
+		if(isset($this->support)):
+			$this->support_stars = (int)floor($this->support / 170000);
+		endif;
+		if(isset($this->recon)):
+			$this->recon_stars = (int)floor($this->recon / 195000);
+		endif;
+		
+		/**
+		 * Scores per vehicle group
+		 *
+		 * Attack Helicopters = 60000
+		 * Scout Hellicopters = 48000
+		 * Jets = 35000
+		 * Tanks = 83200
+		 * Anti Air = 32000
+		 * IFV = 90000
+		 */
+		if(isset($this->vehicleaa)):
+			$this->aa_stars = (int)floor($this->vehicleaa / 32000);
+		endif;
+		if(isset($this->vehicleah)):
+			$this->ah_stars = (int)floor($this->vehicleah / 60000);
+		endif;
+		if(isset($this->vehicleifv)):
+			$this->ifv_stars = (int)floor($this->vehicleifv / 90000);
+		endif;
+		if(isset($this->vehiclejet)):
+			$this->jet_stars = (int)floor($this->vehiclejet / 35000);
+		endif;
+		if(isset($this->vehiclembt)):
+			$this->mbt_stars = (int)floor($this->vehiclembt / 83200);
+		endif;
+		if(isset($this->vehiclesh)):
+			$this->sh_stars = (int)floor($this->vehiclesh / 48000);
+		endif;
 	}
-	
-	class _ranking {}
-	
-class __wap {
+}
+
+/**
+ * "special" classes
+ * these are used to extend a general class (eg. all weapons)
+ */
+class __weapon {
 	public function init() {
-		if( isset($this->shots) && isset($this->hits) && $this->shots>0 && $this->hits>0 ):
+		if( isset($this->shots) && isset($this->hits) && $this->shots > 0 && $this->hits > 0 ):
 			$this->accuracy = (float)number_format( ((100 / $this->shots ) * $this->hits), 3 );
 		endif;
 	}
 }
 class __team {
 	public function init() {
-		if( isset($this->shots) && isset($this->hits) && $this->shots>0 && $this->hits>0 ):
+		if( isset($this->shots) && isset($this->hits) && $this->shots > 0 && $this->hits > 0 ):
 			$this->accuracy = (float)number_format( ((100 / $this->shots ) * $this->hits), 3 );
+		endif;
+		if( isset($this->kills) && isset($this->headshots) && $this->kills > 0 && $this->headshots > 0 ):
+			$this->headshot_perc = (float)number_format( ((100 / $this->kills ) * $this->headshots), 3 );
 		endif;
 	}
 }
@@ -299,10 +322,17 @@ class __ranking {
 	public function init() {
 		$this->rank = $this->r;
 		$this->combined = $this->c;
-		$this->value = $this->v;
-		$this->top_perc = (float)number_format( ( (100 / $this->c) * $this->r ), 2 );
+		$this->value = is_float($this->v) ? (float)number_format($this->v, 3) : $this->v;
+		$this->top_perc = (float)number_format( ( (100 / $this->c) * $this->r ), 3 );
 	}
 }
 
+class __gamemode {
+	public function init() {
+		if( isset($this->wins) && isset($this->losses) && $this->wins > 0 && $this->losses > 0 ):
+			$this->wlr = (float)number_format( ($this->wins / $this->losses), 3 );
+		endif;
+	}
+}
 
 ?>
