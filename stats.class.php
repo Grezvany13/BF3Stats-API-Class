@@ -25,6 +25,7 @@ function hasExtend( $class, $parent = null ) {
 		case 'ranking':		return '__ranking';		break;
 		case 'teams':		return '__team';		break;
 		case 'gamemodes':	return '__gamemode';	break;
+		case 'kits':		return '__kit';			break;
 	endswitch;
 	return false;
 }
@@ -33,7 +34,7 @@ function hasExtend( $class, $parent = null ) {
  * takes the response from the API and creates one massive object
  * when the class already exists it can use the predefined methods (see class _stats)
  */
-function data2object( $array, $class = 'data', $settings = array(), $parent = null ) {
+function data2object( $array, $class = 'data', $settings = array(), $parent = null, $special = null ) {
 	$nclass = '_'.strtolower($class);
 	// check if the new class needs something "special"
 	if( $extend = hasExtend($class, $parent) ):
@@ -48,19 +49,21 @@ function data2object( $array, $class = 'data', $settings = array(), $parent = nu
 	if( !empty($array) && is_array($array) ):
 		foreach($array as $key => $value):
 			// if key is numeric, it's an array (eg. nextranks)
-			if( is_numeric($key) ):
+			if( is_numeric($key) || ($class === 'data' && $special === '@playerlist') ):
 				if(!is_array($object)) $object = array();
-				if( is_array($value) ):
-					$object[$key] = data2object( $value, $key, $settings, $class );
+				if($class === 'data' && $special === '@playerlist'):
+					$object[$key] = data2object( $value, '_player', $settings, $class, $special );
+				elseif( is_array($value) ):
+					$object[$key] = data2object( $value, $key, $settings, $class, $special );
 				else:
 					$object[$key] = $value;
 				endif;
 			else:
 				// if value is an array, loop over it again
 				if( is_array($value) ):
-					$object->{$key} = data2object( $value, $key, $settings, $class );
+					$object->{$key} = data2object( $value, $key, $settings, $class, $special );
 				else:
-				// if value is not an array, put it as a variable
+					// if value is not an array, put it as a variable
 					$object->{$key} = $value;
 					// check for special values like date, time, images, etc
 					if( strstr($key, 'img') == true && is_callable(array('_data', '_htmlImage')) ):
@@ -105,7 +108,7 @@ class _data {
 		if( is_numeric($date) ):
 			$time = (float)$date;
 		else:
-			$time = time();
+			return;
 		endif;
 		
 		$datetime = strftime( self::$settings['date_format'], ($time));
@@ -125,9 +128,9 @@ class _data {
 	 */
 	public static function _niceTime( $data, $format = 'h i', $letters = true ) {
 		if( is_numeric($data) ):
-			$time = (float)$data * 1000;
+			$time = (float)($data * 1000)+1; // +1 is ugly fix
 		else:
-			$time = 0;
+			return;
 		endif;
 
 		$d = 1000*24*60*60; // 1 day in ms
@@ -137,7 +140,7 @@ class _data {
 		
 		$format = str_split($format);
 		$string = '';
-		
+
 		if( in_array( 'd', $format ) ):
 			if( $time % $d !== 0 ):
 				$tmp = floor( $time / $d );
@@ -222,6 +225,45 @@ class _stats {
 			if( $this->scores->score && $this->global->time ) $num = $this->scores->score / ( $this->global->time / 60 );
 			$this->global->spm = (float)number_format( $num, 3 );
 		endif;
+		
+		
+		if(
+			isset($this->scores->score) &&
+			isset($this->global->spm) &&
+			isset($this->global->rounds) &&
+			isset($this->global->rounds_finished) &&
+			isset($this->global->elo) &&
+			isset($this->global->kills) &&
+			isset($this->global->kdr) &&
+			isset($this->global->accuracy) &&
+			isset($this->global->saviorkills) &&
+			isset($this->global->killassists) &&
+			isset($this->scores->award) &&
+			isset($this->scores->objective) &&
+			isset($this->scores->squad) &&
+			isset($this->scores->team)
+		):
+			$SCR = $data->stats->scores->score;				//Score
+			$SPM = $data->stats->global->spm;				//Score Per Minute
+			$RDP = $data->stats->global->rounds;			//Rounds Played
+			$FRD = $data->stats->global->rounds_finished;	//Finished Rounds
+			$SKL = $data->stats->global->elo;				//Skill
+			$KLS = $data->stats->global->kills;				//Kills
+			$KDR = $data->stats->global->kdr;				//Kill/Death Ratio
+			$ACC = $data->stats->global->accuracy;			//Accuracy
+			$SVK = $data->stats->global->saviorkills;		//Savior Kills
+			$KAS = $data->stats->global->killassists;		//Kill Assists
+			$AWS = $data->stats->scores->award;				//Award Score
+			$OBS = $data->stats->scores->objective;			//Objective Score
+			$SQS = $data->stats->scores->squad;				//Squad Score
+			$TSC = $data->stats->scores->team;				//Team Score
+			//First part of the formula is to fine a players "Raw Score" (or RSC):
+			$RSC = $SCR - $AWS;
+			//Next is the actual formula:
+			$BFR = number_format(($SPM + $KDR + (($SQS/$RSC)*100*$FRD) + (($TSC/$RSC)*100*$FRD) + $ACC + (($OBS/$RSC)*100*$FRD) + (($SVK / $KLS)*100*$FRD) + (($KAS/$KLS)*5*$FRD) + $SKL) / 100, 3 );
+			
+			$this->bfr = $BFR;
+		endif;
 	}
 }
 class _global {
@@ -272,7 +314,7 @@ class _scores {
 		 * Attack Helicopters = 60000
 		 * Scout Hellicopters = 48000
 		 * Jets = 35000
-		 * Tanks = 83200
+		 * Tanks = 100000               //83200
 		 * Anti Air = 32000
 		 * IFV = 90000
 		 */
@@ -289,10 +331,40 @@ class _scores {
 			$this->jet_stars = (int)floor($this->vehiclejet / 35000);
 		endif;
 		if(isset($this->vehiclembt)):
-			$this->mbt_stars = (int)floor($this->vehiclembt / 83200);
+			$this->mbt_stars = (int)floor($this->vehiclembt / 100000);
 		endif;
 		if(isset($this->vehiclesh)):
 			$this->sh_stars = (int)floor($this->vehiclesh / 48000);
+		endif;
+	}
+}
+
+/**
+ * hacked classes for assignments
+ */
+class _xpma09 {
+	public function init() {
+		if( isset($this->count) && is_callable(array('_data', '_niceTime')) ):	// since parent has the same classname, but no values
+			// only required for 3rd (so 2) objective
+			$this->criteria[2]->nice_time_needed = _data::_niceTime( (int)$this->criteria[2]->needed );
+			$this->criteria[2]->nice_time_current = _data::_niceTime( (int)$this->criteria[2]->curr );
+			$this->criteria[2]->nice_time_left = _data::_niceTime( ((int)$this->criteria[2]->needed - (int)$this->criteria[2]->curr) );
+		endif;
+	}
+}
+class _xpma10 {
+	public function init() {
+		if( isset($this->count) && is_callable(array('_data', '_niceTime')) ):	// since parent has the same classname, but no values
+			// required for 4th (so 3) objective
+			$this->criteria[3]->nice_time_needed = _data::_niceTime( (int)$this->criteria[3]->needed );
+			$this->criteria[3]->nice_time_current = _data::_niceTime( (int)$this->criteria[3]->curr );
+			$this->criteria[3]->nice_time_left = _data::_niceTime( ((int)$this->criteria[3]->needed - (int)$this->criteria[3]->curr) );
+			
+			// required for 5th (so 4) objective
+			$this->criteria[4]->nice_time_needed = _data::_niceTime( (int)$this->criteria[4]->needed );
+			$this->criteria[4]->nice_time_current = _data::_niceTime( (int)$this->criteria[4]->curr );
+			$this->criteria[4]->nice_time_left = _data::_niceTime( ((int)$this->criteria[4]->needed - (int)$this->criteria[4]->curr) );
+
 		endif;
 	}
 }
@@ -333,6 +405,17 @@ class __gamemode {
 			$this->wlr = (float)number_format( ($this->wins / $this->losses), 3 );
 		endif;
 	}
+}
+
+class __kit {
+	public function init() {
+		if( isset($this->time) && isset($this->score) ):
+			$this->spm = (float)number_format( ($this->score / ( $this->time / 60 )), 3 );
+		endif;
+	}
+}
+
+class __player {
 }
 
 ?>

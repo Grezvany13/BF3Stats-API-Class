@@ -249,7 +249,7 @@ class BF3StatsAPI {
 			if(self::request()):
 				if( self::$data['status'] === 'ok' ):
 					if(self::$return_object && function_exists('data2object')):
-						$data[$platform] = data2object(self::$data['list'], 'data', self::$settings);
+						$data[$platform] = data2object(self::$data['list'], 'data', self::$settings, null, '@playerlist');
 					else:
 						$data[$platform] = self::$data['list'];
 					endif;

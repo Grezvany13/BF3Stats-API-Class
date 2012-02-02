@@ -39,20 +39,83 @@ $api = new BF3StatsAPI();
 /** / // remove space after second * to activate
 
 // get a single player
-$data = $api->player('Grezvany13', 'pc', array('clear','global'));
+$data = $api->player('Grezvany13', 'pc', array('clear', 'assignments'));
 
 print '<pre>';
-var_dump($data);
+var_dump($data->stats);
 print '<pre>';
+/**/
+?>
+
+
+<?php
+/*
+He loops over all the possible unlocks (or service stars or medals),
+takes the number which needs te be acquired (eg. 100 kills),
+ takes that number which you have and calculates the difference.
+ This new number is divided by the number which is required
+ and you've got the order (when sorting from low to high) which unlock will be first.
+
+And now the best part: at the statistics page the order is defined by the amount of time!
+ This is calculated by taking the the result from before
+ and by calculating the same type per minute (eg. total kills per minute) for that item (eg. weapon).
+* /
+
+$tmp = array();
+
+// example only shows 1 weapon, but you should loop over all!
+$aek = $data->stats->weapons->arAEK;
+foreach( $aek->unlocks as $unlock ):
+	// unlock not yet taken
+	if( $unlock->curr !== $unlock->needed ):
+		// take number you needed (here: kills needed till recieving this unlock)
+		$need = ($unlock->needed - $unlock->curr);
+		
+		// get the type (here: kills)
+		$type = strtolower($unlock->nname);
+		
+		// check if this value exists, since the "DICE unlocks" don't have it ;)
+		if( !isset($aek->{$type}) ):
+			continue;
+		endif;
+		
+		// take the number from this type (here: amount of kills)
+		$num = $aek->{$type};
+		
+		// get the time you used this weapon
+		$time = $aek->time;
+		
+		// calculate the number per time (here: kills per minute)
+		$npt = ( $time / $num );
+		
+		// calculate the amount of time needed for this unlock (here: kills per minute multiplied by the amount of kills needed)
+		$time_needed = $npt * $need;
+		
+		// make the time readable
+		$real_time_needed = $data->_niceTime($time_needed);
+		
+		// put it in an array, where the time needed is the key
+		$tmp[$time_needed] = array(
+			'name' => $unlock->name,
+			'time' => $real_time_needed
+		);
+	endif;
+endforeach;
+
+// sort all unlocks by the key (= time)
+ksort($tmp);
+
+// loop over the array and show the next unlocks
+var_dump($tmp);
 /**/
 ?>
 
 <h2>$api->playerlist</h2>
 <?php
-/** / // remove space after second * to activate
+/**/ // remove space after second * to activate
 
 // get a list of players
-$data = $api->playerlist(array('Grezvany13'), 'pc', array('clear','global'));
+$data = $api->playerlist(array('Grezvany13', 'ZA-Tony'), 'pc', array('clear','global'));
 
 print '<pre>';
 var_dump($data);
@@ -72,7 +135,6 @@ var_dump($data);
 print '<pre>';
 /**/
 ?>
-
 
 	</body>
 </html>
